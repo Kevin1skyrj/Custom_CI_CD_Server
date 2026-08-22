@@ -48,6 +48,10 @@ process.env.SSH_KNOWN_HOSTS_FILE = path.join(testRoot, "known-hosts");
 process.env.SSH_REMOTE_DEPLOY_DIR = "/srv/releases";
 process.env.SSH_REMOTE_DEPLOY_SCRIPT = "/usr/local/bin/cicd-deploy";
 process.env.SSH_TIMEOUT_MS = "5000";
+process.env.S3_BUCKET = "static-staging-example";
+process.env.S3_REGION = "ap-south-1";
+process.env.S3_BUILD_DIR = "static-site";
+process.env.S3_PREFIX = "staging";
 
 const { deployToStaging } = await import(
   "../src/deployments/deployment.service.js"
@@ -57,6 +61,9 @@ const deployHookAdapter = await import(
 );
 const sshAdapter = await import(
   "../src/deployments/adapters/ssh.adapter.js"
+);
+const s3StaticAdapter = await import(
+  "../src/deployments/adapters/s3-static.adapter.js"
 );
 
 after(async () => {
@@ -200,5 +207,59 @@ test("prepares, uploads and activates an SSH staging release", async () => {
   assert.ok(commands[2].args.includes("activate"));
   assert.ok(commands[2].args.includes(job.commitSha));
   assert.equal(result.provider, "ssh");
+  assert.equal(result.status, "deployed");
+});
+
+test("uploads static build files under a versioned S3 prefix", async () => {
+  const workspace = path.join(testRoot, "s3-workspace");
+  const buildDirectory = path.join(workspace, "static-site");
+  const job = {
+    id: "88888888-8888-4888-8888-888888888888",
+  };
+  const uploadedObjects = [];
+  const s3Client = {
+    async send(command) {
+      uploadedObjects.push(command.input);
+      return {};
+    },
+  };
+
+  await fs.mkdir(path.join(buildDirectory, "assets"), {
+    recursive: true,
+  });
+  await fs.writeFile(
+    path.join(buildDirectory, "index.html"),
+    "<h1>Staging</h1>",
+    "utf8"
+  );
+  await fs.writeFile(
+    path.join(buildDirectory, "assets", "app.js"),
+    "console.log('built')",
+    "utf8"
+  );
+
+  const result = await s3StaticAdapter.deploy(
+    { job, workspace },
+    { s3Client }
+  );
+
+  assert.deepEqual(
+    uploadedObjects.map((object) => object.Key).sort(),
+    [
+      `staging/${job.id}/assets/app.js`,
+      `staging/${job.id}/index.html`,
+    ]
+  );
+  assert.equal(
+    uploadedObjects.find((object) => object.Key.endsWith("index.html"))
+      .ContentType,
+    "text/html; charset=utf-8"
+  );
+  assert.equal(
+    uploadedObjects.some((object) => "ACL" in object),
+    false
+  );
+  assert.equal(result.provider, "s3-static");
+  assert.equal(result.uploadedFiles, 2);
   assert.equal(result.status, "deployed");
 });

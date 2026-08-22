@@ -30,6 +30,10 @@ export const SSH_REMOTE_DEPLOY_SCRIPT =
 export const SSH_TIMEOUT_MS = Number(
   process.env.SSH_TIMEOUT_MS ?? 5 * 60 * 1000
 );
+export const S3_BUCKET = process.env.S3_BUCKET;
+export const S3_REGION = process.env.S3_REGION;
+export const S3_BUILD_DIR = process.env.S3_BUILD_DIR;
+export const S3_PREFIX = process.env.S3_PREFIX ?? "staging";
 
 const SUPPORTED_DEPLOYMENT_TYPES = new Set([
   "local",
@@ -72,6 +76,13 @@ if (!Number.isInteger(SSH_PORT) || SSH_PORT < 1 || SSH_PORT > 65535) {
 
 if (!Number.isFinite(SSH_TIMEOUT_MS) || SSH_TIMEOUT_MS <= 0) {
   throw new Error("SSH_TIMEOUT_MS must be a positive number");
+}
+
+if (
+  DEPLOYMENT_TYPE === "s3-static" &&
+  (!S3_BUCKET || !S3_REGION || !S3_BUILD_DIR)
+) {
+  throw new Error("S3 static deployment configuration is incomplete");
 }
 
 if (!SUPPORTED_DEPLOYMENT_TYPES.has(DEPLOYMENT_TYPE)) {

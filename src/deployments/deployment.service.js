@@ -2,11 +2,13 @@ import { DEPLOYMENT_TYPE } from "../config/env.js";
 import * as localAdapter from "./adapters/local.adapter.js";
 import * as deployHookAdapter from "./adapters/deploy-hook.adapter.js";
 import * as sshAdapter from "./adapters/ssh.adapter.js";
+import * as s3StaticAdapter from "./adapters/s3-static.adapter.js";
 
 const defaultAdapters = {
   local: localAdapter,
   "deploy-hook": deployHookAdapter,
   ssh: sshAdapter,
+  "s3-static": s3StaticAdapter,
 };
 
 function validateDeploymentResult(result) {
