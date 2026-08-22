@@ -1,8 +1,10 @@
 import { DEPLOYMENT_TYPE } from "../config/env.js";
 import * as localAdapter from "./adapters/local.adapter.js";
+import * as deployHookAdapter from "./adapters/deploy-hook.adapter.js";
 
 const defaultAdapters = {
   local: localAdapter,
+  "deploy-hook": deployHookAdapter,
 };
 
 function validateDeploymentResult(result) {

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
@@ -7,6 +8,26 @@ import { after, test } from "node:test";
 const testRoot = await fs.mkdtemp(
   path.join(os.tmpdir(), "custom-cicd-deployment-")
 );
+let receivedHookPayload;
+const hookServer = http.createServer((request, response) => {
+  let body = "";
+
+  request.setEncoding("utf8");
+  request.on("data", (chunk) => {
+    body += chunk;
+  });
+  request.on("end", () => {
+    receivedHookPayload = JSON.parse(body);
+    response.writeHead(202, { "content-type": "application/json" });
+    response.end(JSON.stringify({ id: "provider-deployment-123" }));
+  });
+});
+
+await new Promise((resolve) => {
+  hookServer.listen(0, "127.0.0.1", resolve);
+});
+
+const { port: hookPort } = hookServer.address();
 
 process.env.GITHUB_WEBHOOK_SECRET = "deployment-test-secret";
 process.env.ALLOWED_REPOSITORY = "test-owner/test-repo";
@@ -17,12 +38,18 @@ process.env.REPOSITORY_CLONE_URL = "test-repository";
 process.env.PIPELINE_EXECUTION_ENABLED = "false";
 process.env.DEPLOYMENT_TYPE = "local";
 process.env.LOCAL_DEPLOY_DIR = path.join(testRoot, "deployments");
+process.env.DEPLOY_HOOK_URL = `http://127.0.0.1:${hookPort}/deploy`;
+process.env.DEPLOY_HOOK_TIMEOUT_MS = "5000";
 
 const { deployToStaging } = await import(
   "../src/deployments/deployment.service.js"
 );
+const deployHookAdapter = await import(
+  "../src/deployments/adapters/deploy-hook.adapter.js"
+);
 
 after(async () => {
+  await new Promise((resolve) => hookServer.close(resolve));
   await fs.rm(testRoot, { recursive: true, force: true });
 });
 
@@ -103,4 +130,26 @@ test("refuses to overwrite an existing local deployment", async () => {
     deployToStaging({ job, workspace }),
     /Local deployment target already exists/
   );
+});
+
+test("triggers a deployment hook without claiming completion", async () => {
+  const job = {
+    id: "66666666-6666-4666-8666-666666666666",
+    repository: "test-owner/test-repo",
+    branch: "main",
+    commitSha: "a".repeat(40),
+  };
+
+  const result = await deployHookAdapter.deploy({ job });
+
+  assert.deepEqual(receivedHookPayload, {
+    jobId: job.id,
+    repository: job.repository,
+    branch: job.branch,
+    commitSha: job.commitSha,
+  });
+  assert.equal(result.provider, "deploy-hook");
+  assert.equal(result.deploymentId, "provider-deployment-123");
+  assert.equal(result.status, "triggered");
+  assert.equal("deploymentUrl" in result, false);
 });

@@ -15,6 +15,10 @@ export const PIPELINE_EXECUTION_ENABLED =
   process.env.PIPELINE_EXECUTION_ENABLED !== "false";
 export const DEPLOYMENT_TYPE = process.env.DEPLOYMENT_TYPE;
 export const LOCAL_DEPLOY_DIR = process.env.LOCAL_DEPLOY_DIR;
+export const DEPLOY_HOOK_URL = process.env.DEPLOY_HOOK_URL;
+export const DEPLOY_HOOK_TIMEOUT_MS = Number(
+  process.env.DEPLOY_HOOK_TIMEOUT_MS ?? 10000
+);
 
 const SUPPORTED_DEPLOYMENT_TYPES = new Set([
   "local",
@@ -45,4 +49,17 @@ if (!SUPPORTED_DEPLOYMENT_TYPES.has(DEPLOYMENT_TYPE)) {
 
 if (DEPLOYMENT_TYPE === "local" && !LOCAL_DEPLOY_DIR) {
   throw new Error("LOCAL_DEPLOY_DIR is required for local deployment");
+}
+
+if (DEPLOYMENT_TYPE === "deploy-hook" && !DEPLOY_HOOK_URL) {
+  throw new Error(
+    "DEPLOY_HOOK_URL is required for deploy-hook deployment"
+  );
+}
+
+if (
+  !Number.isFinite(DEPLOY_HOOK_TIMEOUT_MS) ||
+  DEPLOY_HOOK_TIMEOUT_MS <= 0
+) {
+  throw new Error("DEPLOY_HOOK_TIMEOUT_MS must be a positive number");
 }
