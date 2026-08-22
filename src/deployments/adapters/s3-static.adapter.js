@@ -135,11 +135,54 @@ export async function deploy({ job, workspace }, options = {}) {
     .filter(Boolean)
     .join("/");
 
+  await s3Client.send(
+    new PutObjectCommand({
+      Bucket: S3_BUCKET,
+      Key: [S3_PREFIX, "current.json"].filter(Boolean).join("/"),
+      Body: JSON.stringify({ jobId: job.id, deploymentPrefix }),
+      ContentType: "application/json; charset=utf-8",
+      CacheControl: "no-store",
+    })
+  );
+
   return {
     provider: "s3-static",
     deploymentId: job.id,
     deploymentPrefix,
     uploadedFiles: files.length,
     status: "deployed",
+  };
+}
+
+export async function rollback({ previousRelease }, options = {}) {
+  const previousJobId = previousRelease?.jobId;
+
+  if (!UUID_V4_PATTERN.test(previousJobId)) {
+    throw new Error("S3 rollback requires a previous healthy release");
+  }
+
+  const s3Client = options.s3Client ?? new S3Client({ region: S3_REGION });
+  const deploymentPrefix = [S3_PREFIX, previousJobId]
+    .filter(Boolean)
+    .join("/");
+
+  await s3Client.send(
+    new PutObjectCommand({
+      Bucket: S3_BUCKET,
+      Key: [S3_PREFIX, "current.json"].filter(Boolean).join("/"),
+      Body: JSON.stringify({
+        jobId: previousJobId,
+        deploymentPrefix,
+      }),
+      ContentType: "application/json; charset=utf-8",
+      CacheControl: "no-store",
+    })
+  );
+
+  return {
+    provider: "s3-static",
+    deploymentId: previousJobId,
+    deploymentPrefix,
+    status: "rolled_back",
   };
 }

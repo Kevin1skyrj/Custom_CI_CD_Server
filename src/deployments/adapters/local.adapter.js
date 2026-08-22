@@ -15,6 +15,14 @@ function isInside(parentDirectory, childDirectory) {
   );
 }
 
+async function writeCurrentRelease(deploymentRoot, release) {
+  await fs.writeFile(
+    path.join(deploymentRoot, "current.json"),
+    JSON.stringify(release, null, 2),
+    "utf8"
+  );
+}
+
 export async function deploy({ job, workspace }) {
   if (!UUID_V4_PATTERN.test(job.id)) {
     throw new Error("Local deployment requires a valid job ID");
@@ -51,10 +59,43 @@ export async function deploy({ job, workspace }) {
     filter: (source) => path.basename(source) !== ".git",
   });
 
+  await writeCurrentRelease(deploymentRoot, {
+    jobId: job.id,
+    deploymentPath: deploymentDirectory,
+  });
+
   return {
     provider: "local",
     deploymentId: job.id,
     deploymentPath: deploymentDirectory,
     status: "deployed",
+  };
+}
+
+export async function rollback({ previousRelease }) {
+  const previousJobId = previousRelease?.jobId;
+
+  if (!UUID_V4_PATTERN.test(previousJobId)) {
+    throw new Error("Local rollback requires a previous healthy release");
+  }
+
+  const deploymentRoot = path.resolve(LOCAL_DEPLOY_DIR);
+  const deploymentDirectory = path.join(deploymentRoot, previousJobId);
+  const deploymentStats = await fs.stat(deploymentDirectory);
+
+  if (!deploymentStats.isDirectory()) {
+    throw new Error("Previous local release is unavailable");
+  }
+
+  await writeCurrentRelease(deploymentRoot, {
+    jobId: previousJobId,
+    deploymentPath: deploymentDirectory,
+  });
+
+  return {
+    provider: "local",
+    deploymentId: previousJobId,
+    deploymentPath: deploymentDirectory,
+    status: "rolled_back",
   };
 }

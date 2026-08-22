@@ -35,6 +35,9 @@ const {
 const { schedulePipelineJob } = await import(
   "../src/services/pipeline-runner.service.js"
 );
+const { findCurrentHealthyRelease } = await import(
+  "../src/repositories/release.repository.js"
+);
 
 after(async () => {
   await fs.rm(testRoot, { recursive: true, force: true });
@@ -146,6 +149,7 @@ test("checks out and verifies the exact requested commit", async () => {
   );
   const savedJob = await findPipelineJobById(job.id);
   const savedLog = await readPipelineLog(job.id);
+  const currentRelease = await findCurrentHealthyRelease(job.repository);
 
   assert.equal(checkedOutContent, "first version");
   assert.equal(savedJob.status, "succeeded");
@@ -156,6 +160,8 @@ test("checks out and verifies the exact requested commit", async () => {
   assert.ok(savedJob.completedAt);
   assert.equal(savedJob.deployment.provider, "local");
   assert.equal(savedJob.healthCheck.status, "healthy");
+  assert.equal(currentRelease.jobId, job.id);
+  assert.equal(currentRelease.commitSha, firstCommit);
   assert.equal(savedJob.stageResults.length, 4);
   assert.equal(
     await fs.readFile(path.join(workspace, "client", "built.txt"), "utf8"),
@@ -297,7 +303,7 @@ test("persists deployment adapter failures", async () => {
   assert.match(savedLog, /Pipeline failed during deployment:local/);
 });
 
-test("fails an unhealthy deployment and notifies with failed state", async () => {
+test("rolls back an unhealthy deployment and notifies recovered state", async () => {
   const { stdout: firstCommitOutput } = await runGit(
     ["rev-list", "--max-parents=0", "HEAD"],
     sourceRepository
@@ -312,6 +318,7 @@ test("fails an unhealthy deployment and notifies with failed state", async () =>
     createdAt: new Date().toISOString(),
   };
   let notifiedJob;
+  let healthChecks = 0;
   const healthError = new Error("Deployment health check failed");
   healthError.healthResult = {
     status: "unhealthy",
@@ -333,10 +340,28 @@ test("fails an unhealthy deployment and notifies with failed state", async () =>
               status: "deployed",
             };
           },
+          async rollback({ previousRelease }) {
+            return {
+              provider: "local",
+              deploymentId: previousRelease.jobId,
+              status: "rolled_back",
+            };
+          },
         },
       },
       async healthCheck() {
-        throw healthError;
+        healthChecks += 1;
+
+        if (healthChecks === 1) {
+          throw healthError;
+        }
+
+        return {
+          status: "healthy",
+          statusCode: 200,
+          attempts: 1,
+          durationMs: 1,
+        };
       },
       async notify(completedJob) {
         notifiedJob = completedJob;
@@ -348,9 +373,74 @@ test("fails an unhealthy deployment and notifies with failed state", async () =>
 
   const savedJob = await findPipelineJobById(job.id);
 
-  assert.equal(savedJob.status, "failed");
+  assert.equal(savedJob.status, "rolled_back");
   assert.equal(savedJob.failedStage, "health-check");
   assert.equal(savedJob.healthCheck.status, "unhealthy");
   assert.equal(savedJob.healthCheck.statusCode, 503);
-  assert.equal(notifiedJob.status, "failed");
+  assert.equal(savedJob.rollback.status, "succeeded");
+  assert.equal(
+    savedJob.rollback.targetJobId,
+    "11111111-1111-4111-8111-111111111111"
+  );
+  assert.equal(notifiedJob.status, "rolled_back");
+});
+
+test("persists rollback failure after an unhealthy deployment", async () => {
+  const { stdout: firstCommitOutput } = await runGit(
+    ["rev-list", "--max-parents=0", "HEAD"],
+    sourceRepository
+  );
+  const job = {
+    id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    deliveryId: "rollback-failure-delivery",
+    repository: "test-owner/test-repo",
+    branch: "main",
+    commitSha: firstCommitOutput.trim(),
+    status: "queued",
+    createdAt: new Date().toISOString(),
+  };
+  const healthError = new Error("Deployment health check failed");
+  healthError.healthResult = {
+    status: "unhealthy",
+    statusCode: 503,
+    attempts: 3,
+    durationMs: 10,
+  };
+  let notifiedJob;
+
+  await savePipelineJob(job);
+
+  await assert.rejects(
+    schedulePipelineJob(job, [], {
+      adapters: {
+        local: {
+          async deploy() {
+            return {
+              provider: "local",
+              deploymentId: job.id,
+              status: "deployed",
+            };
+          },
+        },
+      },
+      async healthCheck() {
+        throw healthError;
+      },
+      async rollback() {
+        throw new Error("Expected rollback failure");
+      },
+      async notify(completedJob) {
+        notifiedJob = completedJob;
+        return { status: "sent", messageId: "rollback-failed-email" };
+      },
+    }),
+    /Deployment health check failed/
+  );
+
+  const savedJob = await findPipelineJobById(job.id);
+
+  assert.equal(savedJob.status, "rollback_failed");
+  assert.equal(savedJob.failedStage, "rollback");
+  assert.equal(savedJob.rollback.status, "failed");
+  assert.equal(notifiedJob.status, "rollback_failed");
 });

@@ -53,6 +53,9 @@ export const SMTP_USER = process.env.SMTP_USER;
 export const SMTP_PASSWORD = process.env.SMTP_PASSWORD;
 export const EMAIL_FROM = process.env.EMAIL_FROM;
 export const EMAIL_TO = process.env.EMAIL_TO;
+export const ROLLBACK_ENABLED = process.env.ROLLBACK_ENABLED !== "false";
+export const DEPLOY_HOOK_ROLLBACK_URL =
+  process.env.DEPLOY_HOOK_ROLLBACK_URL;
 
 const SUPPORTED_DEPLOYMENT_TYPES = new Set([
   "local",

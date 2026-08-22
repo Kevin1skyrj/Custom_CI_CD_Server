@@ -47,6 +47,14 @@ function createMessage(job) {
     lines.push(`Health attempts: ${job.healthCheck.attempts}`);
   }
 
+  if (job.rollback) {
+    lines.push(`Rollback: ${job.rollback.status}`);
+
+    if (job.rollback.targetJobId) {
+      lines.push(`Rollback target: ${job.rollback.targetJobId}`);
+    }
+  }
+
   return { subject, text: lines.join("\n") };
 }
 

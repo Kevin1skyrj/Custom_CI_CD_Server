@@ -39,6 +39,8 @@ process.env.PIPELINE_EXECUTION_ENABLED = "false";
 process.env.DEPLOYMENT_TYPE = "local";
 process.env.LOCAL_DEPLOY_DIR = path.join(testRoot, "deployments");
 process.env.DEPLOY_HOOK_URL = `http://127.0.0.1:${hookPort}/deploy`;
+process.env.DEPLOY_HOOK_ROLLBACK_URL =
+  `http://127.0.0.1:${hookPort}/rollback`;
 process.env.DEPLOY_HOOK_TIMEOUT_MS = "5000";
 process.env.SSH_HOST = "staging.example.com";
 process.env.SSH_USER = "deployer";
@@ -60,6 +62,9 @@ const { deployToStaging } = await import(
 );
 const deployHookAdapter = await import(
   "../src/deployments/adapters/deploy-hook.adapter.js"
+);
+const localAdapter = await import(
+  "../src/deployments/adapters/local.adapter.js"
 );
 const sshAdapter = await import(
   "../src/deployments/adapters/ssh.adapter.js"
@@ -150,6 +155,24 @@ test("refuses to overwrite an existing local deployment", async () => {
     deployToStaging({ job, workspace }),
     /Local deployment target already exists/
   );
+
+  const rollbackResult = await localAdapter.rollback({
+    previousRelease: {
+      jobId: "44444444-4444-4444-8444-444444444444",
+    },
+  });
+  const currentRelease = JSON.parse(
+    await fs.readFile(
+      path.join(process.env.LOCAL_DEPLOY_DIR, "current.json"),
+      "utf8"
+    )
+  );
+
+  assert.equal(rollbackResult.status, "rolled_back");
+  assert.equal(
+    currentRelease.jobId,
+    "44444444-4444-4444-8444-444444444444"
+  );
 });
 
 test("triggers a deployment hook without claiming completion", async () => {
@@ -210,6 +233,26 @@ test("prepares, uploads and activates an SSH staging release", async () => {
   assert.ok(commands[2].args.includes(job.commitSha));
   assert.equal(result.provider, "ssh");
   assert.equal(result.status, "deployed");
+
+  commands.length = 0;
+
+  const rollbackResult = await sshAdapter.rollback(
+    {
+      job,
+      workspace,
+      previousRelease: {
+        jobId: "44444444-4444-4444-8444-444444444444",
+      },
+    },
+    async (command) => {
+      commands.push(command);
+      return { exitCode: 0, stdout: "", stderr: "", durationMs: 1 };
+    }
+  );
+
+  assert.equal(commands.length, 1);
+  assert.ok(commands[0].args.includes("rollback"));
+  assert.equal(rollbackResult.status, "rolled_back");
 });
 
 test("uploads static build files under a versioned S3 prefix", async () => {
@@ -246,7 +289,10 @@ test("uploads static build files under a versioned S3 prefix", async () => {
   );
 
   assert.deepEqual(
-    uploadedObjects.map((object) => object.Key).sort(),
+    uploadedObjects
+      .map((object) => object.Key)
+      .filter((key) => key.includes(job.id))
+      .sort(),
     [
       `staging/${job.id}/assets/app.js`,
       `staging/${job.id}/index.html`,
@@ -264,4 +310,26 @@ test("uploads static build files under a versioned S3 prefix", async () => {
   assert.equal(result.provider, "s3-static");
   assert.equal(result.uploadedFiles, 2);
   assert.equal(result.status, "deployed");
+  assert.ok(
+    uploadedObjects.some((object) => object.Key === "staging/current.json")
+  );
+
+  uploadedObjects.length = 0;
+
+  const rollbackResult = await s3StaticAdapter.rollback(
+    {
+      previousRelease: {
+        jobId: "44444444-4444-4444-8444-444444444444",
+      },
+    },
+    { s3Client }
+  );
+
+  assert.equal(uploadedObjects.length, 1);
+  assert.equal(uploadedObjects[0].Key, "staging/current.json");
+  assert.match(
+    uploadedObjects[0].Body,
+    /44444444-4444-4444-8444-444444444444/
+  );
+  assert.equal(rollbackResult.status, "rolled_back");
 });

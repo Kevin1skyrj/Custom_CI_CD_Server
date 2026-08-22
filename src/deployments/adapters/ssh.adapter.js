@@ -128,3 +128,37 @@ export async function deploy({ job, workspace }, execute = runCommand) {
     status: "deployed",
   };
 }
+
+export async function rollback(
+  { job, previousRelease, workspace },
+  execute = runCommand
+) {
+  validateConfiguration(job);
+
+  if (!UUID_V4_PATTERN.test(previousRelease?.jobId)) {
+    throw new Error("SSH rollback requires a previous healthy release");
+  }
+
+  const sourceDirectory = path.resolve(workspace);
+  const sshTarget = `${SSH_USER}@${SSH_HOST}`;
+
+  await execute({
+    command: "ssh",
+    args: [
+      ...createSshOptions(),
+      sshTarget,
+      SSH_REMOTE_DEPLOY_SCRIPT,
+      "rollback",
+      job.id,
+      previousRelease.jobId,
+    ],
+    cwd: sourceDirectory,
+    timeoutMs: SSH_TIMEOUT_MS,
+  });
+
+  return {
+    provider: "ssh",
+    deploymentId: previousRelease.jobId,
+    status: "rolled_back",
+  };
+}

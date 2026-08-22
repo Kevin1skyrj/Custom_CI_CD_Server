@@ -1,13 +1,21 @@
 import {
   DEPLOYMENT_TYPE,
   PIPELINE_EXECUTION_ENABLED,
+  ROLLBACK_ENABLED,
 } from "../config/env.js";
-import { deployToStaging } from "../deployments/deployment.service.js";
+import {
+  deployToStaging,
+  rollbackStaging,
+} from "../deployments/deployment.service.js";
 import {
   appendPipelineLog,
   findPipelineJobById,
   updatePipelineJob,
 } from "../repositories/pipeline.repository.js";
+import {
+  findCurrentHealthyRelease,
+  saveHealthyRelease,
+} from "../repositories/release.repository.js";
 import { checkoutExactCommit } from "./checkout.service.js";
 import { checkDeploymentHealth } from "./health-check.service.js";
 import { sendPipelineNotification } from "./notification.service.js";
@@ -27,6 +35,9 @@ export function schedulePipelineJob(job, components, options = {}) {
 async function runPipeline(job, components, options) {
   let currentStage = "checkout";
   let pipelineError;
+  let workspace;
+  let deployment;
+  let previousRelease;
 
   try {
     await updatePipelineJob(job.id, {
@@ -35,7 +46,7 @@ async function runPipeline(job, components, options) {
     });
     await appendPipelineLog(job.id, "Exact commit checkout started");
 
-    const workspace = await checkoutExactCommit(job);
+    workspace = await checkoutExactCommit(job);
 
     await updatePipelineJob(job.id, {
       status: "checked_out",
@@ -57,14 +68,16 @@ async function runPipeline(job, components, options) {
 
     currentStage = `deployment:${DEPLOYMENT_TYPE}`;
 
+    previousRelease = await findCurrentHealthyRelease(job.repository);
+
     await updatePipelineJob(job.id, {
       status: "deploying",
       currentStage,
     });
     await appendPipelineLog(job.id, `${currentStage} started`);
 
-    const deployment = await deployToStaging(
-      { job, workspace },
+    deployment = await deployToStaging(
+      { job, workspace, previousRelease },
       options.adapters
     );
     const deploymentTriggered = deployment.status === "triggered";
@@ -109,6 +122,15 @@ async function runPipeline(job, components, options) {
       job.id,
       `Deployment is healthy after ${healthCheck.attempts} attempt(s)`
     );
+
+    currentStage = "release-recording";
+    await saveHealthyRelease({
+      jobId: job.id,
+      repository: job.repository,
+      commitSha: job.commitSha,
+      deployment,
+      healthyAt: new Date().toISOString(),
+    });
   } catch (error) {
     currentStage = error.pipelineStage ?? currentStage;
 
@@ -127,6 +149,16 @@ async function runPipeline(job, components, options) {
     );
 
     pipelineError = error;
+
+    if (currentStage === "health-check") {
+      await attemptRollback({
+        job,
+        workspace,
+        deployment,
+        previousRelease,
+        options,
+      });
+    }
   }
 
   const completedJob = await findPipelineJobById(job.id);
@@ -147,5 +179,94 @@ async function runPipeline(job, components, options) {
 
   if (pipelineError) {
     throw pipelineError;
+  }
+}
+
+async function attemptRollback({
+  job,
+  workspace,
+  deployment,
+  previousRelease,
+  options,
+}) {
+  if (!ROLLBACK_ENABLED || !previousRelease || !deployment) {
+    await updatePipelineJob(job.id, {
+      rollback: {
+        status: "not_attempted",
+        reason: !ROLLBACK_ENABLED
+          ? "rollback_disabled"
+          : "no_previous_healthy_release",
+      },
+    });
+    return;
+  }
+
+  await updatePipelineJob(job.id, {
+    status: "rolling_back",
+    currentStage: "rollback",
+  });
+  await appendPipelineLog(
+    job.id,
+    `Rollback to healthy release ${previousRelease.jobId} started`
+  );
+
+  try {
+    const rollbackDeployment = await (options.rollback ??
+      ((context) => rollbackStaging(context, options.adapters)))({
+      job,
+      workspace,
+      failedDeployment: deployment,
+      previousRelease,
+    });
+
+    await updatePipelineJob(job.id, {
+      status: "checking_rollback_health",
+      currentStage: "rollback-health-check",
+      rollback: {
+        status: "deployed",
+        targetJobId: previousRelease.jobId,
+        deployment: rollbackDeployment,
+      },
+    });
+    await appendPipelineLog(job.id, "Rollback health check started");
+
+    const rollbackHealth = await (options.healthCheck ??
+      checkDeploymentHealth)();
+
+    await updatePipelineJob(job.id, {
+      status: "rolled_back",
+      currentStage: null,
+      rollback: {
+        status: "succeeded",
+        targetJobId: previousRelease.jobId,
+        deployment: rollbackDeployment,
+        healthCheck: rollbackHealth,
+        completedAt: new Date().toISOString(),
+      },
+      completedAt: new Date().toISOString(),
+    });
+    await appendPipelineLog(
+      job.id,
+      `Rollback to ${previousRelease.jobId} succeeded`
+    );
+  } catch (error) {
+    await updatePipelineJob(job.id, {
+      status: "rollback_failed",
+      currentStage: null,
+      failedStage:
+        error.message === "Deployment health check failed"
+          ? "rollback-health-check"
+          : "rollback",
+      rollback: {
+        status: "failed",
+        targetJobId: previousRelease.jobId,
+        failedAt: new Date().toISOString(),
+      },
+      completedAt: new Date().toISOString(),
+    });
+    await appendPipelineLog(
+      job.id,
+      `Rollback to ${previousRelease.jobId} failed: ${error.message}`
+    );
   }
 }

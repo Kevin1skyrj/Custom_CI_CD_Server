@@ -39,3 +39,19 @@ export async function deployToStaging(
 
   return result;
 }
+
+export async function rollbackStaging(context, adapters = defaultAdapters) {
+  const adapter = adapters[DEPLOYMENT_TYPE];
+
+  if (!adapter || typeof adapter.rollback !== "function") {
+    throw new Error(
+      `Rollback is unsupported for deployment type: ${DEPLOYMENT_TYPE}`
+    );
+  }
+
+  const result = await adapter.rollback(context);
+
+  validateDeploymentResult(result);
+
+  return result;
+}
