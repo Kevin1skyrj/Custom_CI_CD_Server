@@ -22,6 +22,7 @@ process.env.PIPELINE_WORKSPACE_DIR = workspaceDirectory;
 process.env.REPOSITORY_CLONE_URL = sourceRepository;
 process.env.PIPELINE_EXECUTION_ENABLED = "true";
 process.env.DEPLOYMENT_TYPE = "local";
+process.env.LOCAL_DEPLOY_DIR = path.join(testRoot, "local-deployments");
 
 const {
   appendPipelineLog,

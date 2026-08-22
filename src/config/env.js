@@ -14,6 +14,7 @@ export const REPOSITORY_CLONE_URL =
 export const PIPELINE_EXECUTION_ENABLED =
   process.env.PIPELINE_EXECUTION_ENABLED !== "false";
 export const DEPLOYMENT_TYPE = process.env.DEPLOYMENT_TYPE;
+export const LOCAL_DEPLOY_DIR = process.env.LOCAL_DEPLOY_DIR;
 
 const SUPPORTED_DEPLOYMENT_TYPES = new Set([
   "local",
@@ -40,4 +41,8 @@ if (!SUPPORTED_DEPLOYMENT_TYPES.has(DEPLOYMENT_TYPE)) {
   throw new Error(
     "DEPLOYMENT_TYPE must be local, ssh, s3-static or deploy-hook"
   );
+}
+
+if (DEPLOYMENT_TYPE === "local" && !LOCAL_DEPLOY_DIR) {
+  throw new Error("LOCAL_DEPLOY_DIR is required for local deployment");
 }

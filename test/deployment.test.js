@@ -1,5 +1,12 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { after, test } from "node:test";
+
+const testRoot = await fs.mkdtemp(
+  path.join(os.tmpdir(), "custom-cicd-deployment-")
+);
 
 process.env.GITHUB_WEBHOOK_SECRET = "deployment-test-secret";
 process.env.ALLOWED_REPOSITORY = "test-owner/test-repo";
@@ -9,10 +16,15 @@ process.env.PIPELINE_WORKSPACE_DIR = "./test-data/deployment-workspaces";
 process.env.REPOSITORY_CLONE_URL = "test-repository";
 process.env.PIPELINE_EXECUTION_ENABLED = "false";
 process.env.DEPLOYMENT_TYPE = "local";
+process.env.LOCAL_DEPLOY_DIR = path.join(testRoot, "deployments");
 
 const { deployToStaging } = await import(
   "../src/deployments/deployment.service.js"
 );
+
+after(async () => {
+  await fs.rm(testRoot, { recursive: true, force: true });
+});
 
 test("selects the configured deployment adapter", async () => {
   const context = {
@@ -50,5 +62,45 @@ test("rejects an invalid adapter result", async () => {
   await assert.rejects(
     deployToStaging({}, { local: { async deploy() {} } }),
     /Deployment adapter must return a result object/
+  );
+});
+
+test("copies a workspace into an isolated local staging directory", async () => {
+  const workspace = path.join(testRoot, "workspace");
+  const job = {
+    id: "44444444-4444-4444-8444-444444444444",
+  };
+
+  await fs.mkdir(path.join(workspace, ".git"), { recursive: true });
+  await fs.writeFile(path.join(workspace, "artifact.txt"), "built", "utf8");
+  await fs.writeFile(path.join(workspace, ".git", "config"), "git", "utf8");
+
+  const result = await deployToStaging({ job, workspace });
+
+  assert.equal(result.provider, "local");
+  assert.equal(result.status, "deployed");
+  assert.equal(
+    await fs.readFile(path.join(result.deploymentPath, "artifact.txt"), "utf8"),
+    "built"
+  );
+  await assert.rejects(
+    fs.access(path.join(result.deploymentPath, ".git"))
+  );
+});
+
+test("refuses to overwrite an existing local deployment", async () => {
+  const workspace = path.join(testRoot, "second-workspace");
+  const job = {
+    id: "55555555-5555-4555-8555-555555555555",
+  };
+
+  await fs.mkdir(workspace);
+  await fs.writeFile(path.join(workspace, "artifact.txt"), "built", "utf8");
+
+  await deployToStaging({ job, workspace });
+
+  await assert.rejects(
+    deployToStaging({ job, workspace }),
+    /Local deployment target already exists/
   );
 });

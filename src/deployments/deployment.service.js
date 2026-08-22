@@ -1,4 +1,9 @@
 import { DEPLOYMENT_TYPE } from "../config/env.js";
+import * as localAdapter from "./adapters/local.adapter.js";
+
+const defaultAdapters = {
+  local: localAdapter,
+};
 
 function validateDeploymentResult(result) {
   if (!result || typeof result !== "object") {
@@ -10,7 +15,10 @@ function validateDeploymentResult(result) {
   }
 }
 
-export async function deployToStaging(context, adapters) {
+export async function deployToStaging(
+  context,
+  adapters = defaultAdapters
+) {
   const adapter = adapters[DEPLOYMENT_TYPE];
 
   if (!adapter || typeof adapter.deploy !== "function") {
