@@ -1,10 +1,12 @@
 import crypto from "node:crypto";
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
 import { after, before, test } from "node:test";
 
 process.env.GITHUB_WEBHOOK_SECRET = "test-webhook-secret";
 process.env.ALLOWED_REPOSITORY = "test-owner/test-repo";
 process.env.ALLOWED_BRANCH = "main";
+process.env.PIPELINE_DATA_DIR = "./test-data/pipeline-jobs";
 
 const { default: app } = await import("../src/app.js");
 
@@ -12,6 +14,7 @@ let server;
 let baseUrl;
 
 before(async () => {
+  await fs.rm("./test-data", { recursive: true, force: true });
   await new Promise((resolve) => {
     server = app.listen(0, "127.0.0.1", resolve);
   });
@@ -24,6 +27,7 @@ after(async () => {
   await new Promise((resolve) => {
     server.close(resolve);
   });
+  await fs.rm("./test-data", { recursive: true, force: true });
 });
 
 test("rejects a webhook without a signature", async () => {
@@ -51,8 +55,11 @@ test("rejects a webhook with an incorrect signature", async () => {
   assert.equal(response.status, 401);
 });
 
-test("accepts a webhook with a valid signature", async () => {
+test("creates a persistent job for an authorized push", async () => {
+  const commitSha = "a".repeat(40);
+
   const body = JSON.stringify({
+    after: commitSha,
     ref: "refs/heads/main",
     repository: {
       full_name: "test-owner/test-repo",
@@ -70,13 +77,65 @@ test("accepts a webhook with a valid signature", async () => {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-hub-signature-256": signature,
+      "x-github-delivery": "delivery-123",
       "x-github-event": "push",
+      "x-hub-signature-256": signature,
     },
     body,
   });
 
-  assert.equal(response.status, 200);
+  assert.equal(response.status, 202);
+
+  const responseBody = await response.json();
+  assert.ok(responseBody.jobId);
+
+  const jobDirectory =
+    `./test-data/pipeline-jobs/${responseBody.jobId}`;
+
+  const savedJob = JSON.parse(
+    await fs.readFile(`${jobDirectory}/job.json`, "utf8")
+  );
+
+  const savedLog = await fs.readFile(
+    `${jobDirectory}/pipeline.log`,
+    "utf8"
+  );
+
+  assert.equal(savedJob.deliveryId, "delivery-123");
+  assert.equal(savedJob.repository, "test-owner/test-repo");
+  assert.equal(savedJob.branch, "main");
+  assert.equal(savedJob.commitSha, commitSha);
+  assert.equal(savedJob.status, "queued");
+  assert.match(savedLog, /Pipeline job created and queued/);
+
+  const jobResponse = await fetch(
+    `${baseUrl}/pipeline-jobs/${responseBody.jobId}`
+  );
+  const jobResponseBody = await jobResponse.json();
+
+  assert.equal(jobResponse.status, 200);
+  assert.equal(jobResponseBody.job.id, responseBody.jobId);
+  assert.equal(jobResponseBody.job.commitSha, commitSha);
+  assert.match(
+    jobResponseBody.job.log,
+    /Pipeline job created and queued/
+  );
+});
+
+test("returns 404 for an invalid pipeline job ID", async () => {
+  const response = await fetch(
+    `${baseUrl}/pipeline-jobs/not-a-valid-job-id`
+  );
+
+  assert.equal(response.status, 404);
+});
+
+test("returns 404 for a valid but unknown pipeline job ID", async () => {
+  const response = await fetch(
+    `${baseUrl}/pipeline-jobs/00000000-0000-4000-8000-000000000000`
+  );
+
+  assert.equal(response.status, 404);
 });
 
 test("rejects a modified body signed with an old signature", async () => {
