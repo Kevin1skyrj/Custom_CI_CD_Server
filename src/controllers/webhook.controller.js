@@ -1,4 +1,5 @@
 import { createPipelineJob } from "../services/pipeline.service.js";
+import { schedulePipelineJob } from "../services/pipeline-runner.service.js";
 export async function handleGithubWebhook(req, res) {
   const deliveryId = req.get("x-github-delivery");
   const commitSha = req.body.after;
@@ -14,6 +15,12 @@ export async function handleGithubWebhook(req, res) {
       req.body,
       deliveryId
     );
+
+    if (!duplicate) {
+      void schedulePipelineJob(job).catch((error) => {
+        console.error(`Pipeline job ${job.id} failed:`, error);
+      });
+    }
 
     return res.status(duplicate ? 200 : 202).json({
       message: duplicate

@@ -7,6 +7,9 @@ process.env.GITHUB_WEBHOOK_SECRET = "test-webhook-secret";
 process.env.ALLOWED_REPOSITORY = "test-owner/test-repo";
 process.env.ALLOWED_BRANCH = "main";
 process.env.PIPELINE_DATA_DIR = "./test-data/pipeline-jobs";
+process.env.PIPELINE_WORKSPACE_DIR = "./test-data/workspaces";
+process.env.REPOSITORY_CLONE_URL = "./test-data/source-repository";
+process.env.PIPELINE_EXECUTION_ENABLED = "false";
 
 const { default: app } = await import("../src/app.js");
 

@@ -107,6 +107,23 @@ export async function claimDelivery(deliveryId, jobId) {
   }
 }
 
+export async function updatePipelineJob(jobId, updates) {
+  const existingJob = await findPipelineJobById(jobId);
+
+  if (!existingJob) {
+    return null;
+  }
+
+  const updatedJob = {
+    ...existingJob,
+    ...updates,
+  };
+
+  await savePipelineJob(updatedJob);
+
+  return updatedJob;
+}
+
 export async function deletePipelineJob(jobId) {
   const jobDirectory = path.join(pipelineDataDirectory, jobId);
 
