@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 
 process.env.GITHUB_WEBHOOK_SECRET = "test-webhook-secret";
+process.env.ALLOWED_REPOSITORY = "test-owner/test-repo";
+process.env.ALLOWED_BRANCH = "main";
 
 const { default: app } = await import("../src/app.js");
 
@@ -50,7 +52,12 @@ test("rejects a webhook with an incorrect signature", async () => {
 });
 
 test("accepts a webhook with a valid signature", async () => {
-  const body = JSON.stringify({ message: "test webhook" });
+  const body = JSON.stringify({
+    ref: "refs/heads/main",
+    repository: {
+      full_name: "test-owner/test-repo",
+    },
+  });
 
   const signature =
     "sha256=" +
@@ -64,6 +71,7 @@ test("accepts a webhook with a valid signature", async () => {
     headers: {
       "content-type": "application/json",
       "x-hub-signature-256": signature,
+      "x-github-event": "push",
     },
     body,
   });
@@ -92,4 +100,110 @@ test("rejects a modified body signed with an old signature", async () => {
   });
 
   assert.equal(response.status, 401);
+});
+
+test("ignores a signed non-push event", async () => {
+  const body = JSON.stringify({
+    ref: "refs/heads/main",
+    repository: {
+      full_name: "test-owner/test-repo",
+    },
+  });
+
+  const signature =
+    "sha256=" +
+    crypto
+      .createHmac("sha256", "test-webhook-secret")
+      .update(body)
+      .digest("hex");
+
+  const response = await fetch(`${baseUrl}/webhook/github`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-hub-signature-256": signature,
+      "x-github-event": "ping",
+    },
+    body,
+  });
+
+  assert.equal(response.status, 202);
+});
+
+test("rejects malformed JSON after signature verification", async () => {
+  const body = "{invalid-json";
+
+  const signature =
+    "sha256=" +
+    crypto
+      .createHmac("sha256", "test-webhook-secret")
+      .update(body)
+      .digest("hex");
+
+  const response = await fetch(`${baseUrl}/webhook/github`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-hub-signature-256": signature,
+      "x-github-event": "push",
+    },
+    body,
+  });
+
+  assert.equal(response.status, 400);
+});
+
+test("rejects a push from an unauthorized repository", async () => {
+  const body = JSON.stringify({
+    ref: "refs/heads/main",
+    repository: {
+      full_name: "attacker/different-repository",
+    },
+  });
+
+  const signature =
+    "sha256=" +
+    crypto
+      .createHmac("sha256", "test-webhook-secret")
+      .update(body)
+      .digest("hex");
+
+  const response = await fetch(`${baseUrl}/webhook/github`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-hub-signature-256": signature,
+      "x-github-event": "push",
+    },
+    body,
+  });
+
+  assert.equal(response.status, 403);
+});
+test("ignores a push to a non-deployment branch", async () => {
+  const body = JSON.stringify({
+    ref: "refs/heads/feature/new-dashboard",
+    repository: {
+      full_name: "test-owner/test-repo",
+    },
+  });
+
+  const signature =
+    "sha256=" +
+    crypto
+      .createHmac("sha256", "test-webhook-secret")
+      .update(body)
+      .digest("hex");
+
+  const response = await fetch(`${baseUrl}/webhook/github`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-hub-signature-256": signature,
+      "x-github-event": "push",
+    },
+    body,
+  });
+
+  assert.equal(response.status, 202);
 });

@@ -4,3 +4,9 @@ export const GITHUB_WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET;
 if (!GITHUB_WEBHOOK_SECRET) {
   throw new Error("GITHUB_WEBHOOK_SECRET is required");
 }
+export const ALLOWED_REPOSITORY = process.env.ALLOWED_REPOSITORY;
+export const ALLOWED_BRANCH = process.env.ALLOWED_BRANCH;
+
+if (!ALLOWED_REPOSITORY || !ALLOWED_BRANCH) {
+  throw new Error("ALLOWED_REPOSITORY and ALLOWED_BRANCH are required");
+}
