@@ -10,11 +10,17 @@ export async function handleGithubWebhook(req, res) {
   }
 
   try {
-    const job = await createPipelineJob(req.body, deliveryId);
+    const { job, duplicate } = await createPipelineJob(
+      req.body,
+      deliveryId
+    );
 
-    return res.status(202).json({
-      message: "Pipeline job queued",
+    return res.status(duplicate ? 200 : 202).json({
+      message: duplicate
+        ? "Pipeline job already queued"
+        : "Pipeline job queued",
       jobId: job.id,
+      duplicate,
     });
   } catch (error) {
     console.error("Failed to create pipeline job:", error);

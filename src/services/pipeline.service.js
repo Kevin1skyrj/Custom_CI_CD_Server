@@ -2,6 +2,9 @@ import crypto from "node:crypto";
 
 import {
   appendPipelineLog,
+  claimDelivery,
+  deletePipelineJob,
+  findDeliveryClaim,
   findPipelineJobById,
   readPipelineLog,
   savePipelineJob,
@@ -22,9 +25,40 @@ export async function createPipelineJob(payload, deliveryId) {
   };
 
   await savePipelineJob(job);
+
+  let deliveryClaimed;
+
+  try {
+    deliveryClaimed = await claimDelivery(deliveryId, job.id);
+  } catch (error) {
+    await deletePipelineJob(job.id);
+    throw error;
+  }
+
+  if (!deliveryClaimed) {
+    await deletePipelineJob(job.id);
+
+    const existingClaim = await findDeliveryClaim(deliveryId);
+    const existingJob = existingClaim
+      ? await findPipelineJobById(existingClaim.jobId)
+      : null;
+
+    if (!existingJob) {
+      throw new Error("Claimed pipeline job could not be found");
+    }
+
+    return {
+      job: existingJob,
+      duplicate: true,
+    };
+  }
+
   await appendPipelineLog(job.id, "Pipeline job created and queued");
 
-  return job;
+  return {
+    job,
+    duplicate: false,
+  };
 }
 
 export async function getPipelineJobDetails(jobId) {

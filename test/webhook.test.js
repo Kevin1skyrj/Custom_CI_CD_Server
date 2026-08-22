@@ -120,6 +120,35 @@ test("creates a persistent job for an authorized push", async () => {
     jobResponseBody.job.log,
     /Pipeline job created and queued/
   );
+
+  const duplicateResponse = await fetch(
+    `${baseUrl}/webhook/github`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-github-delivery": "delivery-123",
+        "x-github-event": "push",
+        "x-hub-signature-256": signature,
+      },
+      body,
+    }
+  );
+  const duplicateBody = await duplicateResponse.json();
+
+  assert.equal(duplicateResponse.status, 200);
+  assert.equal(duplicateBody.jobId, responseBody.jobId);
+  assert.equal(duplicateBody.duplicate, true);
+
+  const dataEntries = await fs.readdir(
+    "./test-data/pipeline-jobs",
+    { withFileTypes: true }
+  );
+  const jobDirectories = dataEntries.filter(
+    (entry) => entry.isDirectory() && entry.name !== "deliveries"
+  );
+
+  assert.equal(jobDirectories.length, 1);
 });
 
 test("returns 404 for an invalid pipeline job ID", async () => {
@@ -136,6 +165,53 @@ test("returns 404 for a valid but unknown pipeline job ID", async () => {
   );
 
   assert.equal(response.status, 404);
+});
+
+test("deduplicates concurrent deliveries atomically", async () => {
+  const body = JSON.stringify({
+    after: "b".repeat(40),
+    ref: "refs/heads/main",
+    repository: {
+      full_name: "test-owner/test-repo",
+    },
+  });
+
+  const signature =
+    "sha256=" +
+    crypto
+      .createHmac("sha256", "test-webhook-secret")
+      .update(body)
+      .digest("hex");
+
+  const sendDelivery = () =>
+    fetch(`${baseUrl}/webhook/github`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-github-delivery": "concurrent-delivery",
+        "x-github-event": "push",
+        "x-hub-signature-256": signature,
+      },
+      body,
+    });
+
+  const responses = await Promise.all([
+    sendDelivery(),
+    sendDelivery(),
+  ]);
+  const responseBodies = await Promise.all(
+    responses.map((response) => response.json())
+  );
+
+  assert.deepEqual(
+    responses.map((response) => response.status).sort(),
+    [200, 202]
+  );
+  assert.equal(responseBodies[0].jobId, responseBodies[1].jobId);
+  assert.deepEqual(
+    responseBodies.map((response) => response.duplicate).sort(),
+    [false, true]
+  );
 });
 
 test("rejects a modified body signed with an old signature", async () => {

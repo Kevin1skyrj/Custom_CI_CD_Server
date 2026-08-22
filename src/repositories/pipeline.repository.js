@@ -1,9 +1,23 @@
+import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 
 import { PIPELINE_DATA_DIR } from "../config/env.js";
 
 const pipelineDataDirectory = path.resolve(PIPELINE_DATA_DIR);
+
+function getDeliveryFile(deliveryId) {
+  const deliveryKey = crypto
+    .createHash("sha256")
+    .update(deliveryId)
+    .digest("hex");
+
+  return path.join(
+    pipelineDataDirectory,
+    "deliveries",
+    `${deliveryKey}.json`
+  );
+}
 
 export async function savePipelineJob(job) {
   const jobDirectory = path.join(pipelineDataDirectory, job.id);
@@ -57,6 +71,54 @@ export async function readPipelineLog(jobId) {
 
   try {
     return await fs.readFile(logFile, "utf8");
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return null;
+    }
+
+    throw error;
+  }
+}
+
+export async function claimDelivery(deliveryId, jobId) {
+  const deliveryFile = getDeliveryFile(deliveryId);
+
+  await fs.mkdir(path.dirname(deliveryFile), {
+    recursive: true,
+  });
+
+  try {
+    await fs.writeFile(
+      deliveryFile,
+      JSON.stringify({ deliveryId, jobId }, null, 2),
+      {
+        encoding: "utf8",
+        flag: "wx",
+      }
+    );
+
+    return true;
+  } catch (error) {
+    if (error.code === "EEXIST") {
+      return false;
+    }
+
+    throw error;
+  }
+}
+
+export async function deletePipelineJob(jobId) {
+  const jobDirectory = path.join(pipelineDataDirectory, jobId);
+
+  await fs.rm(jobDirectory, { recursive: true, force: true });
+}
+
+export async function findDeliveryClaim(deliveryId) {
+  const deliveryFile = getDeliveryFile(deliveryId);
+
+  try {
+    const content = await fs.readFile(deliveryFile, "utf8");
+    return JSON.parse(content);
   } catch (error) {
     if (error.code === "ENOENT") {
       return null;
