@@ -1,4 +1,8 @@
-import { PIPELINE_EXECUTION_ENABLED } from "../config/env.js";
+import {
+  DEPLOYMENT_TYPE,
+  PIPELINE_EXECUTION_ENABLED,
+} from "../config/env.js";
+import { deployToStaging } from "../deployments/deployment.service.js";
 import {
   appendPipelineLog,
   updatePipelineJob,
@@ -7,17 +11,17 @@ import { checkoutExactCommit } from "./checkout.service.js";
 import { runPipelineStages } from "./pipeline-stages.service.js";
 import { enqueueProjectTask } from "./project-queue.service.js";
 
-export function schedulePipelineJob(job, components) {
+export function schedulePipelineJob(job, components, adapters) {
   if (!PIPELINE_EXECUTION_ENABLED) {
     return Promise.resolve();
   }
 
   return enqueueProjectTask(job.repository, () =>
-    runPipeline(job, components)
+    runPipeline(job, components, adapters)
   );
 }
 
-async function runPipeline(job, components) {
+async function runPipeline(job, components, adapters) {
   let currentStage = "checkout";
 
   try {
@@ -43,9 +47,43 @@ async function runPipeline(job, components) {
     await updatePipelineJob(job.id, {
       status: "build_succeeded",
       currentStage: null,
-      completedAt: new Date().toISOString(),
+      buildCompletedAt: new Date().toISOString(),
     });
     await appendPipelineLog(job.id, "Install, test and build stages passed");
+
+    currentStage = `deployment:${DEPLOYMENT_TYPE}`;
+
+    await updatePipelineJob(job.id, {
+      status: "deploying",
+      currentStage,
+    });
+    await appendPipelineLog(job.id, `${currentStage} started`);
+
+    const deployment = await deployToStaging(
+      { job, workspace },
+      adapters
+    );
+    const deploymentTriggered = deployment.status === "triggered";
+
+    await updatePipelineJob(job.id, {
+      status: deploymentTriggered
+        ? "deployment_triggered"
+        : "staging_deployed",
+      currentStage: null,
+      deployment,
+      ...(deploymentTriggered
+        ? { deploymentTriggeredAt: new Date().toISOString() }
+        : {
+            deployedAt: new Date().toISOString(),
+            completedAt: new Date().toISOString(),
+          }),
+    });
+    await appendPipelineLog(
+      job.id,
+      deploymentTriggered
+        ? `${currentStage} accepted by provider`
+        : `${currentStage} completed`
+    );
   } catch (error) {
     currentStage = error.pipelineStage ?? currentStage;
 

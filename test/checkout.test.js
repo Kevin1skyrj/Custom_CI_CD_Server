@@ -134,10 +134,13 @@ test("checks out and verifies the exact requested commit", async () => {
   const savedLog = await readPipelineLog(job.id);
 
   assert.equal(checkedOutContent, "first version");
-  assert.equal(savedJob.status, "build_succeeded");
+  assert.equal(savedJob.status, "staging_deployed");
   assert.ok(savedJob.startedAt);
   assert.ok(savedJob.checkedOutAt);
+  assert.ok(savedJob.buildCompletedAt);
+  assert.ok(savedJob.deployedAt);
   assert.ok(savedJob.completedAt);
+  assert.equal(savedJob.deployment.provider, "local");
   assert.equal(savedJob.stageResults.length, 4);
   assert.equal(
     await fs.readFile(path.join(workspace, "client", "built.txt"), "utf8"),
@@ -147,6 +150,7 @@ test("checks out and verifies the exact requested commit", async () => {
   assert.match(savedLog, new RegExp(firstCommit));
   assert.match(savedLog, /client:test succeeded/);
   assert.match(savedLog, /client:build succeeded/);
+  assert.match(savedLog, /deployment:local completed/);
 });
 
 test("persists a failed status when checkout cannot start", async () => {
@@ -234,4 +238,41 @@ test("persists the failed stage and skips later stages", async () => {
   assert.equal(savedJob.stageResults[0].status, "failed");
   assert.equal(savedJob.stageResults[0].exitCode, 2);
   await assert.rejects(fs.access(markerFile));
+});
+
+test("persists deployment adapter failures", async () => {
+  const { stdout: firstCommitOutput } = await runGit(
+    ["rev-list", "--max-parents=0", "HEAD"],
+    sourceRepository
+  );
+  const job = {
+    id: "99999999-9999-4999-8999-999999999999",
+    deliveryId: "failed-deployment-delivery",
+    repository: "test-owner/test-repo",
+    branch: "main",
+    commitSha: firstCommitOutput.trim(),
+    status: "queued",
+    createdAt: new Date().toISOString(),
+  };
+  const adapters = {
+    local: {
+      async deploy() {
+        throw new Error("Expected staging failure");
+      },
+    },
+  };
+
+  await savePipelineJob(job);
+
+  await assert.rejects(
+    schedulePipelineJob(job, [], adapters),
+    /Expected staging failure/
+  );
+
+  const savedJob = await findPipelineJobById(job.id);
+  const savedLog = await readPipelineLog(job.id);
+
+  assert.equal(savedJob.status, "failed");
+  assert.equal(savedJob.failedStage, "deployment:local");
+  assert.match(savedLog, /Pipeline failed during deployment:local/);
 });
