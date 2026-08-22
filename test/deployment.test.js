@@ -40,12 +40,23 @@ process.env.DEPLOYMENT_TYPE = "local";
 process.env.LOCAL_DEPLOY_DIR = path.join(testRoot, "deployments");
 process.env.DEPLOY_HOOK_URL = `http://127.0.0.1:${hookPort}/deploy`;
 process.env.DEPLOY_HOOK_TIMEOUT_MS = "5000";
+process.env.SSH_HOST = "staging.example.com";
+process.env.SSH_USER = "deployer";
+process.env.SSH_PORT = "22";
+process.env.SSH_PRIVATE_KEY_PATH = path.join(testRoot, "deploy-key");
+process.env.SSH_KNOWN_HOSTS_FILE = path.join(testRoot, "known-hosts");
+process.env.SSH_REMOTE_DEPLOY_DIR = "/srv/releases";
+process.env.SSH_REMOTE_DEPLOY_SCRIPT = "/usr/local/bin/cicd-deploy";
+process.env.SSH_TIMEOUT_MS = "5000";
 
 const { deployToStaging } = await import(
   "../src/deployments/deployment.service.js"
 );
 const deployHookAdapter = await import(
   "../src/deployments/adapters/deploy-hook.adapter.js"
+);
+const sshAdapter = await import(
+  "../src/deployments/adapters/ssh.adapter.js"
 );
 
 after(async () => {
@@ -152,4 +163,42 @@ test("triggers a deployment hook without claiming completion", async () => {
   assert.equal(result.deploymentId, "provider-deployment-123");
   assert.equal(result.status, "triggered");
   assert.equal("deploymentUrl" in result, false);
+});
+
+test("prepares, uploads and activates an SSH staging release", async () => {
+  const workspace = path.join(testRoot, "ssh-workspace");
+  const job = {
+    id: "77777777-7777-4777-8777-777777777777",
+    commitSha: "b".repeat(40),
+  };
+  const commands = [];
+
+  await fs.mkdir(workspace);
+  await fs.writeFile(path.join(workspace, "artifact.txt"), "built", "utf8");
+  await fs.writeFile(process.env.SSH_PRIVATE_KEY_PATH, "test-key", "utf8");
+  await fs.writeFile(
+    process.env.SSH_KNOWN_HOSTS_FILE,
+    "staging.example.com test-host-key",
+    "utf8"
+  );
+
+  const result = await sshAdapter.deploy(
+    { job, workspace },
+    async (command) => {
+      commands.push(command);
+      return { exitCode: 0, stdout: "", stderr: "", durationMs: 1 };
+    }
+  );
+
+  assert.deepEqual(
+    commands.map((command) => command.command),
+    ["ssh", "scp", "ssh"]
+  );
+  assert.ok(commands[0].args.includes("StrictHostKeyChecking=yes"));
+  assert.ok(commands[0].args.includes("prepare"));
+  assert.ok(commands[1].args.includes("-r"));
+  assert.ok(commands[2].args.includes("activate"));
+  assert.ok(commands[2].args.includes(job.commitSha));
+  assert.equal(result.provider, "ssh");
+  assert.equal(result.status, "deployed");
 });

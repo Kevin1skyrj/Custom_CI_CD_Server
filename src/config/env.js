@@ -19,6 +19,17 @@ export const DEPLOY_HOOK_URL = process.env.DEPLOY_HOOK_URL;
 export const DEPLOY_HOOK_TIMEOUT_MS = Number(
   process.env.DEPLOY_HOOK_TIMEOUT_MS ?? 10000
 );
+export const SSH_HOST = process.env.SSH_HOST;
+export const SSH_USER = process.env.SSH_USER;
+export const SSH_PORT = Number(process.env.SSH_PORT ?? 22);
+export const SSH_PRIVATE_KEY_PATH = process.env.SSH_PRIVATE_KEY_PATH;
+export const SSH_KNOWN_HOSTS_FILE = process.env.SSH_KNOWN_HOSTS_FILE;
+export const SSH_REMOTE_DEPLOY_DIR = process.env.SSH_REMOTE_DEPLOY_DIR;
+export const SSH_REMOTE_DEPLOY_SCRIPT =
+  process.env.SSH_REMOTE_DEPLOY_SCRIPT;
+export const SSH_TIMEOUT_MS = Number(
+  process.env.SSH_TIMEOUT_MS ?? 5 * 60 * 1000
+);
 
 const SUPPORTED_DEPLOYMENT_TYPES = new Set([
   "local",
@@ -39,6 +50,28 @@ if (
   throw new Error(
     "PIPELINE_DATA_DIR, PIPELINE_WORKSPACE_DIR and REPOSITORY_CLONE_URL are required"
   );
+}
+
+if (
+  DEPLOYMENT_TYPE === "ssh" &&
+  (
+    !SSH_HOST ||
+    !SSH_USER ||
+    !SSH_PRIVATE_KEY_PATH ||
+    !SSH_KNOWN_HOSTS_FILE ||
+    !SSH_REMOTE_DEPLOY_DIR ||
+    !SSH_REMOTE_DEPLOY_SCRIPT
+  )
+) {
+  throw new Error("SSH deployment configuration is incomplete");
+}
+
+if (!Number.isInteger(SSH_PORT) || SSH_PORT < 1 || SSH_PORT > 65535) {
+  throw new Error("SSH_PORT must be a valid TCP port");
+}
+
+if (!Number.isFinite(SSH_TIMEOUT_MS) || SSH_TIMEOUT_MS <= 0) {
+  throw new Error("SSH_TIMEOUT_MS must be a positive number");
 }
 
 if (!SUPPORTED_DEPLOYMENT_TYPES.has(DEPLOYMENT_TYPE)) {
