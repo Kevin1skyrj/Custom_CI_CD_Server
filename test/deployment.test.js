@@ -52,6 +52,8 @@ process.env.S3_BUCKET = "static-staging-example";
 process.env.S3_REGION = "ap-south-1";
 process.env.S3_BUILD_DIR = "static-site";
 process.env.S3_PREFIX = "staging";
+process.env.HEALTH_CHECK_URL = "http://127.0.0.1/health-not-used";
+process.env.EMAIL_NOTIFICATIONS_ENABLED = "false";
 
 const { deployToStaging } = await import(
   "../src/deployments/deployment.service.js"

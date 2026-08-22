@@ -34,6 +34,25 @@ export const S3_BUCKET = process.env.S3_BUCKET;
 export const S3_REGION = process.env.S3_REGION;
 export const S3_BUILD_DIR = process.env.S3_BUILD_DIR;
 export const S3_PREFIX = process.env.S3_PREFIX ?? "staging";
+export const HEALTH_CHECK_URL = process.env.HEALTH_CHECK_URL;
+export const HEALTH_CHECK_ATTEMPTS = Number(
+  process.env.HEALTH_CHECK_ATTEMPTS ?? 5
+);
+export const HEALTH_CHECK_INTERVAL_MS = Number(
+  process.env.HEALTH_CHECK_INTERVAL_MS ?? 5000
+);
+export const HEALTH_CHECK_TIMEOUT_MS = Number(
+  process.env.HEALTH_CHECK_TIMEOUT_MS ?? 5000
+);
+export const EMAIL_NOTIFICATIONS_ENABLED =
+  process.env.EMAIL_NOTIFICATIONS_ENABLED === "true";
+export const SMTP_HOST = process.env.SMTP_HOST;
+export const SMTP_PORT = Number(process.env.SMTP_PORT ?? 587);
+export const SMTP_SECURE = process.env.SMTP_SECURE === "true";
+export const SMTP_USER = process.env.SMTP_USER;
+export const SMTP_PASSWORD = process.env.SMTP_PASSWORD;
+export const EMAIL_FROM = process.env.EMAIL_FROM;
+export const EMAIL_TO = process.env.EMAIL_TO;
 
 const SUPPORTED_DEPLOYMENT_TYPES = new Set([
   "local",
@@ -83,6 +102,36 @@ if (
   (!S3_BUCKET || !S3_REGION || !S3_BUILD_DIR)
 ) {
   throw new Error("S3 static deployment configuration is incomplete");
+}
+
+if (!HEALTH_CHECK_URL) {
+  throw new Error("HEALTH_CHECK_URL is required");
+}
+
+if (
+  !Number.isInteger(HEALTH_CHECK_ATTEMPTS) ||
+  HEALTH_CHECK_ATTEMPTS < 1 ||
+  !Number.isFinite(HEALTH_CHECK_INTERVAL_MS) ||
+  HEALTH_CHECK_INTERVAL_MS < 0 ||
+  !Number.isFinite(HEALTH_CHECK_TIMEOUT_MS) ||
+  HEALTH_CHECK_TIMEOUT_MS <= 0
+) {
+  throw new Error("Health-check retry configuration is invalid");
+}
+
+if (
+  EMAIL_NOTIFICATIONS_ENABLED &&
+  (!SMTP_HOST || !EMAIL_FROM || !EMAIL_TO)
+) {
+  throw new Error("Email notification configuration is incomplete");
+}
+
+if (Boolean(SMTP_USER) !== Boolean(SMTP_PASSWORD)) {
+  throw new Error("SMTP_USER and SMTP_PASSWORD must be provided together");
+}
+
+if (!Number.isInteger(SMTP_PORT) || SMTP_PORT < 1 || SMTP_PORT > 65535) {
+  throw new Error("SMTP_PORT must be a valid TCP port");
 }
 
 if (!SUPPORTED_DEPLOYMENT_TYPES.has(DEPLOYMENT_TYPE)) {

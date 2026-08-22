@@ -23,6 +23,8 @@ process.env.REPOSITORY_CLONE_URL = sourceRepository;
 process.env.PIPELINE_EXECUTION_ENABLED = "true";
 process.env.DEPLOYMENT_TYPE = "local";
 process.env.LOCAL_DEPLOY_DIR = path.join(testRoot, "local-deployments");
+process.env.HEALTH_CHECK_URL = "http://127.0.0.1/health-not-used";
+process.env.EMAIL_NOTIFICATIONS_ENABLED = "false";
 
 const {
   appendPipelineLog,
@@ -123,7 +125,19 @@ test("checks out and verifies the exact requested commit", async () => {
 
   await savePipelineJob(job);
   await appendPipelineLog(job.id, "Pipeline job created and queued");
-  await schedulePipelineJob(job);
+  await schedulePipelineJob(job, undefined, {
+    async healthCheck() {
+      return {
+        status: "healthy",
+        statusCode: 200,
+        attempts: 1,
+        durationMs: 1,
+      };
+    },
+    async notify() {
+      throw new Error("Expected notification failure");
+    },
+  });
 
   const workspace = path.join(workspaceDirectory, job.id);
   const checkedOutContent = await fs.readFile(
@@ -134,13 +148,14 @@ test("checks out and verifies the exact requested commit", async () => {
   const savedLog = await readPipelineLog(job.id);
 
   assert.equal(checkedOutContent, "first version");
-  assert.equal(savedJob.status, "staging_deployed");
+  assert.equal(savedJob.status, "succeeded");
   assert.ok(savedJob.startedAt);
   assert.ok(savedJob.checkedOutAt);
   assert.ok(savedJob.buildCompletedAt);
   assert.ok(savedJob.deployedAt);
   assert.ok(savedJob.completedAt);
   assert.equal(savedJob.deployment.provider, "local");
+  assert.equal(savedJob.healthCheck.status, "healthy");
   assert.equal(savedJob.stageResults.length, 4);
   assert.equal(
     await fs.readFile(path.join(workspace, "client", "built.txt"), "utf8"),
@@ -151,6 +166,11 @@ test("checks out and verifies the exact requested commit", async () => {
   assert.match(savedLog, /client:test succeeded/);
   assert.match(savedLog, /client:build succeeded/);
   assert.match(savedLog, /deployment:local completed/);
+  assert.match(savedLog, /Deployment is healthy/);
+  assert.match(
+    savedLog,
+    /Email notification failed; pipeline result was not changed/
+  );
 });
 
 test("persists a failed status when checkout cannot start", async () => {
@@ -265,7 +285,7 @@ test("persists deployment adapter failures", async () => {
   await savePipelineJob(job);
 
   await assert.rejects(
-    schedulePipelineJob(job, [], adapters),
+    schedulePipelineJob(job, [], { adapters }),
     /Expected staging failure/
   );
 
@@ -275,4 +295,62 @@ test("persists deployment adapter failures", async () => {
   assert.equal(savedJob.status, "failed");
   assert.equal(savedJob.failedStage, "deployment:local");
   assert.match(savedLog, /Pipeline failed during deployment:local/);
+});
+
+test("fails an unhealthy deployment and notifies with failed state", async () => {
+  const { stdout: firstCommitOutput } = await runGit(
+    ["rev-list", "--max-parents=0", "HEAD"],
+    sourceRepository
+  );
+  const job = {
+    id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    deliveryId: "unhealthy-deployment-delivery",
+    repository: "test-owner/test-repo",
+    branch: "main",
+    commitSha: firstCommitOutput.trim(),
+    status: "queued",
+    createdAt: new Date().toISOString(),
+  };
+  let notifiedJob;
+  const healthError = new Error("Deployment health check failed");
+  healthError.healthResult = {
+    status: "unhealthy",
+    statusCode: 503,
+    attempts: 3,
+    durationMs: 10,
+  };
+
+  await savePipelineJob(job);
+
+  await assert.rejects(
+    schedulePipelineJob(job, [], {
+      adapters: {
+        local: {
+          async deploy() {
+            return {
+              provider: "local",
+              deploymentId: job.id,
+              status: "deployed",
+            };
+          },
+        },
+      },
+      async healthCheck() {
+        throw healthError;
+      },
+      async notify(completedJob) {
+        notifiedJob = completedJob;
+        return { status: "sent", messageId: "failed-email" };
+      },
+    }),
+    /Deployment health check failed/
+  );
+
+  const savedJob = await findPipelineJobById(job.id);
+
+  assert.equal(savedJob.status, "failed");
+  assert.equal(savedJob.failedStage, "health-check");
+  assert.equal(savedJob.healthCheck.status, "unhealthy");
+  assert.equal(savedJob.healthCheck.statusCode, 503);
+  assert.equal(notifiedJob.status, "failed");
 });

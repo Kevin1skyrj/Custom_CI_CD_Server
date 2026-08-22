@@ -12,6 +12,8 @@ process.env.REPOSITORY_CLONE_URL = "./test-data/source-repository";
 process.env.PIPELINE_EXECUTION_ENABLED = "false";
 process.env.DEPLOYMENT_TYPE = "local";
 process.env.LOCAL_DEPLOY_DIR = "./test-data/local-deployments";
+process.env.HEALTH_CHECK_URL = "http://127.0.0.1/health-not-used";
+process.env.EMAIL_NOTIFICATIONS_ENABLED = "false";
 
 const { default: app } = await import("../src/app.js");
 
