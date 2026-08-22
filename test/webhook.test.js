@@ -10,6 +10,7 @@ process.env.PIPELINE_DATA_DIR = "./test-data/pipeline-jobs";
 process.env.PIPELINE_WORKSPACE_DIR = "./test-data/workspaces";
 process.env.REPOSITORY_CLONE_URL = "./test-data/source-repository";
 process.env.PIPELINE_EXECUTION_ENABLED = "false";
+process.env.DEPLOYMENT_TYPE = "local";
 
 const { default: app } = await import("../src/app.js");
 

@@ -13,6 +13,14 @@ export const REPOSITORY_CLONE_URL =
   process.env.REPOSITORY_CLONE_URL;
 export const PIPELINE_EXECUTION_ENABLED =
   process.env.PIPELINE_EXECUTION_ENABLED !== "false";
+export const DEPLOYMENT_TYPE = process.env.DEPLOYMENT_TYPE;
+
+const SUPPORTED_DEPLOYMENT_TYPES = new Set([
+  "local",
+  "ssh",
+  "s3-static",
+  "deploy-hook",
+]);
 
 if (!ALLOWED_REPOSITORY || !ALLOWED_BRANCH) {
   throw new Error("ALLOWED_REPOSITORY and ALLOWED_BRANCH are required");
@@ -25,5 +33,11 @@ if (
 ) {
   throw new Error(
     "PIPELINE_DATA_DIR, PIPELINE_WORKSPACE_DIR and REPOSITORY_CLONE_URL are required"
+  );
+}
+
+if (!SUPPORTED_DEPLOYMENT_TYPES.has(DEPLOYMENT_TYPE)) {
+  throw new Error(
+    "DEPLOYMENT_TYPE must be local, ssh, s3-static or deploy-hook"
   );
 }

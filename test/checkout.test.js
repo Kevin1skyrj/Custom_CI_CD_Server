@@ -21,6 +21,7 @@ process.env.PIPELINE_DATA_DIR = pipelineDataDirectory;
 process.env.PIPELINE_WORKSPACE_DIR = workspaceDirectory;
 process.env.REPOSITORY_CLONE_URL = sourceRepository;
 process.env.PIPELINE_EXECUTION_ENABLED = "true";
+process.env.DEPLOYMENT_TYPE = "local";
 
 const {
   appendPipelineLog,
