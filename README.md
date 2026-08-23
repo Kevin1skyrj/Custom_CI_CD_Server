@@ -230,10 +230,14 @@ The suite includes real HTTP servers, real local Git repositories, real npm stag
 - DataDock backend currently has no automated test script.
 - Managed-provider terminal polling is not implemented.
 - S3 `current.json` requires a compatible traffic-switching layer.
-- Production cutover is intentionally manual and reviewed.
+- Initial host provisioning and the first production cutover require human review; subsequent `main` pushes are automated.
+
+## Production validation
+
+The complete workflow is running for DataDock. GitHub sends signed push events to `https://cicd.datadock.me/webhook/github`; the dedicated CI host builds the exact commit and deploys through private VPC SSH to versioned EC2 release directories. Two healthy releases were activated, public API and frontend checks passed, failure and success emails were delivered, and an atomic rollback plus forward reactivation were verified against production.
 
 ## Interview summary
 
-> I built a custom CI/CD orchestrator in Node.js to understand the complete delivery lifecycle. It securely authenticates GitHub raw webhooks, validates project policy, persists idempotent jobs, queues work per repository, checks out the exact commit in an isolated workspace, executes trusted stages without shell interpolation, deploys through infrastructure adapters, verifies application health, records known-good releases, automatically rolls back unhealthy versions, and sends failure-isolated SMTP notifications. I tested concurrency, exact commit selection, fail-fast execution, adapter behavior, health retries, notification isolation, and rollback without contacting production infrastructure.
+> I built and productionized a custom CI/CD orchestrator in Node.js to understand the complete delivery lifecycle. It securely authenticates GitHub raw webhooks, validates project policy, persists idempotent jobs, queues work per repository, checks out the exact commit in an isolated workspace, executes trusted stages without shell interpolation, deploys through infrastructure adapters, verifies application health, records known-good releases, automatically rolls back unhealthy versions, and sends failure-isolated SMTP notifications. Beyond automated tests, I deployed it on a dedicated Ubuntu host and verified versioned DataDock releases, private-network SSH, PM2 activation, public health checks, email delivery, rollback, and forward recovery against production.
 
 Detailed implementation and interview questions for every milestone are available in [notes](notes).
