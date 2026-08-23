@@ -8,7 +8,8 @@ readonly RELEASES_DIR="${APP_ROOT}/releases"
 readonly SHARED_DIR="${APP_ROOT}/shared"
 readonly CURRENT_LINK="${APP_ROOT}/current"
 readonly ECOSYSTEM_FILE="/etc/custom-cicd/datadock.ecosystem.config.cjs"
-readonly PM2_BIN="/home/ubuntu/.nvm/versions/node/v22.23.2/bin/pm2"
+readonly NODE_BIN="/home/ubuntu/.nvm/versions/node/v22.23.2/bin/node"
+readonly PM2_CLI="/home/ubuntu/.nvm/versions/node/v22.23.2/lib/node_modules/pm2/bin/pm2"
 readonly UUID_PATTERN='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$'
 readonly SHA_PATTERN='^[0-9a-fA-F]{40}$'
 
@@ -64,8 +65,8 @@ switch_current_release() {
 }
 
 reload_services() {
-  sudo -u ubuntu "$PM2_BIN" startOrReload "$ECOSYSTEM_FILE" --update-env
-  sudo -u ubuntu "$PM2_BIN" save
+  sudo -u ubuntu "$NODE_BIN" "$PM2_CLI" startOrReload "$ECOSYSTEM_FILE" --update-env
+  sudo -u ubuntu "$NODE_BIN" "$PM2_CLI" save
 }
 
 prepare_release() {
