@@ -45,4 +45,8 @@ test("DataDock PM2 configuration uses the current release link", () => {
   );
   assert.match(ecosystemConfig, /datadock-server/);
   assert.match(ecosystemConfig, /datadock-client/);
+  assert.match(ecosystemConfig, /--env-file=\.env server\.js/);
+  assert.match(ecosystemConfig, /node_modules\/next\/dist\/bin\/next start/);
+  assert.match(ecosystemConfig, /interpreter: "none"/);
+  assert.doesNotMatch(ecosystemConfig, /bin\/npm/);
 });
