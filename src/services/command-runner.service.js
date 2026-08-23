@@ -13,10 +13,10 @@ function captureOutput(currentOutput, chunk) {
   );
 }
 
-function redactSecrets(output) {
+function redactSecrets(output, environment) {
   let redactedOutput = output;
 
-  for (const [name, value] of Object.entries(process.env)) {
+  for (const [name, value] of Object.entries(environment)) {
     if (
       /SECRET|TOKEN|PASSWORD|PRIVATE_KEY|API_KEY/i.test(name) &&
       value &&
@@ -29,16 +29,17 @@ function redactSecrets(output) {
   return redactedOutput.trim();
 }
 
-export function runCommand({ command, args, cwd, timeoutMs }) {
+export function runCommand({ command, args, cwd, timeoutMs, env = {} }) {
   return new Promise((resolve, reject) => {
     const startedAt = Date.now();
     let stdout = "";
     let stderr = "";
     let timedOut = false;
 
+    const environment = { ...process.env, ...env };
     const child = spawn(command, args, {
       cwd,
-      env: process.env,
+      env: environment,
       shell: false,
       windowsHide: true,
     });
@@ -67,8 +68,8 @@ export function runCommand({ command, args, cwd, timeoutMs }) {
       const result = {
         exitCode,
         durationMs: Date.now() - startedAt,
-        stdout: redactSecrets(stdout),
-        stderr: redactSecrets(stderr),
+        stdout: redactSecrets(stdout, environment),
+        stderr: redactSecrets(stderr, environment),
       };
 
       if (timedOut) {

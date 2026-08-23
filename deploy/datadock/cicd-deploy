@@ -1,0 +1,153 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+umask 027
+
+readonly APP_ROOT="/var/www/datadock-deploy"
+readonly RELEASES_DIR="${APP_ROOT}/releases"
+readonly SHARED_DIR="${APP_ROOT}/shared"
+readonly CURRENT_LINK="${APP_ROOT}/current"
+readonly ECOSYSTEM_FILE="/etc/custom-cicd/datadock.ecosystem.config.cjs"
+readonly PM2_BIN="/home/ubuntu/.nvm/versions/node/v22.23.2/bin/pm2"
+readonly UUID_PATTERN='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$'
+readonly SHA_PATTERN='^[0-9a-fA-F]{40}$'
+
+fail() {
+  echo "Deployment error: $1" >&2
+  exit 1
+}
+
+validate_job_id() {
+  [[ "$1" =~ $UUID_PATTERN ]] || fail "invalid job ID"
+}
+
+validate_commit_sha() {
+  [[ "$1" =~ $SHA_PATTERN ]] || fail "invalid commit SHA"
+}
+
+release_path() {
+  printf '%s/%s' "$RELEASES_DIR" "$1"
+}
+
+verify_release() {
+  local release="$1"
+  local expected_sha="$2"
+
+  [[ -d "$release/client/.next" ]] || fail "client build is missing"
+  [[ -f "$release/client/package.json" ]] || fail "client package is missing"
+  [[ -f "$release/server/server.js" ]] || fail "server entry point is missing"
+  [[ -f "$release/server/package.json" ]] || fail "server package is missing"
+  [[ -f "$SHARED_DIR/client.env.production" ]] || fail "shared client environment is missing"
+  [[ -f "$SHARED_DIR/server.env" ]] || fail "shared server environment is missing"
+  [[ -x "$PM2_BIN" ]] || fail "PM2 executable is unavailable"
+  [[ -f "$ECOSYSTEM_FILE" ]] || fail "PM2 ecosystem file is unavailable"
+
+  if [[ -d "$release/.git" ]]; then
+    local actual_sha
+    actual_sha="$(git -C "$release" rev-parse HEAD)"
+    [[ "$actual_sha" == "${expected_sha,,}" ]] || fail "release commit does not match"
+  fi
+}
+
+link_shared_environment() {
+  local release="$1"
+
+  ln -sfn "$SHARED_DIR/client.env.production" "$release/client/.env.production"
+  ln -sfn "$SHARED_DIR/server.env" "$release/server/.env"
+}
+
+switch_current_release() {
+  local release="$1"
+  local temporary_link="${APP_ROOT}/.current-$$"
+
+  ln -s "$release" "$temporary_link"
+  mv -Tf "$temporary_link" "$CURRENT_LINK"
+}
+
+reload_services() {
+  "$PM2_BIN" startOrReload "$ECOSYSTEM_FILE" --update-env
+  "$PM2_BIN" save
+}
+
+prepare_release() {
+  local job_id="$1"
+  local release
+
+  validate_job_id "$job_id"
+  release="$(release_path "$job_id")"
+  [[ ! -e "$release" ]] || fail "release already exists"
+
+  install -d -m 0750 "$RELEASES_DIR" "$SHARED_DIR" "$release"
+  echo "Prepared release $job_id"
+}
+
+activate_release() {
+  local job_id="$1"
+  local commit_sha="$2"
+  local release
+  local previous_release=""
+
+  validate_job_id "$job_id"
+  validate_commit_sha "$commit_sha"
+  release="$(release_path "$job_id")"
+  [[ -d "$release" ]] || fail "release does not exist"
+
+  verify_release "$release" "$commit_sha"
+  link_shared_environment "$release"
+
+  if [[ -L "$CURRENT_LINK" ]]; then
+    previous_release="$(readlink -f "$CURRENT_LINK")"
+  fi
+
+  switch_current_release "$release"
+
+  if ! reload_services; then
+    if [[ -n "$previous_release" && -d "$previous_release" ]]; then
+      switch_current_release "$previous_release"
+      reload_services || true
+    fi
+
+    fail "PM2 activation failed"
+  fi
+
+  echo "Activated release $job_id"
+}
+
+rollback_release() {
+  local failed_job_id="$1"
+  local previous_job_id="$2"
+  local previous_release
+
+  validate_job_id "$failed_job_id"
+  validate_job_id "$previous_job_id"
+  previous_release="$(release_path "$previous_job_id")"
+  [[ -d "$previous_release" ]] || fail "previous release does not exist"
+
+  switch_current_release "$previous_release"
+  reload_services
+  echo "Rolled back from $failed_job_id to $previous_job_id"
+}
+
+main() {
+  local action="${1:-}"
+
+  case "$action" in
+    prepare)
+      [[ $# -eq 2 ]] || fail "prepare requires a job ID"
+      prepare_release "$2"
+      ;;
+    activate)
+      [[ $# -eq 3 ]] || fail "activate requires a job ID and commit SHA"
+      activate_release "$2" "$3"
+      ;;
+    rollback)
+      [[ $# -eq 3 ]] || fail "rollback requires failed and previous job IDs"
+      rollback_release "$2" "$3"
+      ;;
+    *)
+      fail "supported actions: prepare, activate, rollback"
+      ;;
+  esac
+}
+
+main "$@"

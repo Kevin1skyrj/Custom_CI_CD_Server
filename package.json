@@ -1,15 +1,21 @@
 {
   "name": "custom_ci_cd_server",
   "version": "1.0.0",
-  "description": "",
+  "description": "A security-focused custom CI/CD server with GitHub webhooks, isolated builds, deployment adapters, health checks, notifications, and rollback.",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
     "dev": "node --watch --env-file=.env index.js",
     "test": "node --test"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "ci-cd",
+    "github-webhooks",
+    "deployment",
+    "nodejs",
+    "devops"
+  ],
+  "author": "Rajat Pandey",
   "license": "ISC",
   "type": "module",
   "dependencies": {

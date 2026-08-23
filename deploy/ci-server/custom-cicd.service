@@ -1,0 +1,22 @@
+[Unit]
+Description=Custom CI/CD Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cicd
+Group=cicd
+WorkingDirectory=/opt/custom-cicd
+EnvironmentFile=/etc/custom-cicd/custom-cicd.env
+ExecStart=/usr/bin/node /opt/custom-cicd/index.js
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/custom-cicd
+
+[Install]
+WantedBy=multi-user.target

@@ -56,6 +56,8 @@ export const EMAIL_TO = process.env.EMAIL_TO;
 export const ROLLBACK_ENABLED = process.env.ROLLBACK_ENABLED !== "false";
 export const DEPLOY_HOOK_ROLLBACK_URL =
   process.env.DEPLOY_HOOK_ROLLBACK_URL;
+export const DATADOCK_CLIENT_BUILD_ENV_FILE =
+  process.env.DATADOCK_CLIENT_BUILD_ENV_FILE;
 
 const SUPPORTED_DEPLOYMENT_TYPES = new Set([
   "local",

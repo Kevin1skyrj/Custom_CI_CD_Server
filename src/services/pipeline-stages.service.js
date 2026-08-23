@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { parseEnv } from "node:util";
 
 import { PIPELINE_COMPONENTS } from "../config/pipeline.config.js";
 import {
@@ -31,6 +32,15 @@ async function appendCommandOutput(jobId, result) {
   if (result.stderr) {
     await appendPipelineLog(jobId, `stderr:\n${result.stderr}`);
   }
+}
+
+async function loadStageEnvironment(envFile) {
+  if (!envFile) {
+    return {};
+  }
+
+  const content = await fs.readFile(path.resolve(envFile), "utf8");
+  return parseEnv(content);
 }
 
 export async function runPipelineStages(
@@ -69,11 +79,13 @@ export async function runPipelineStages(
       await appendPipelineLog(job.id, `${stageKey} started`);
 
       try {
+        const stageEnvironment = await loadStageEnvironment(stage.envFile);
         const result = await runCommand({
           command: stage.command,
           args: stage.args,
           cwd: componentDirectory,
           timeoutMs: stage.timeoutMs,
+          env: stageEnvironment,
         });
 
         await appendCommandOutput(job.id, result);

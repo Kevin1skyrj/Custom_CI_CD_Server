@@ -1,5 +1,7 @@
 import path from "node:path";
 
+import { DATADOCK_CLIENT_BUILD_ENV_FILE } from "./env.js";
+
 const npmCommand = process.platform === "win32" ? process.execPath : "npm";
 const npmArguments = process.platform === "win32"
   ? [
@@ -45,6 +47,7 @@ export const PIPELINE_COMPONENTS = [
         command: npmCommand,
         args: [...npmArguments, "test"],
         timeoutMs: 5 * 60 * 1000,
+        envFile: DATADOCK_CLIENT_BUILD_ENV_FILE,
       },
       {
         name: "build",
@@ -52,6 +55,7 @@ export const PIPELINE_COMPONENTS = [
         command: npmCommand,
         args: [...npmArguments, "run", "build"],
         timeoutMs: 10 * 60 * 1000,
+        envFile: DATADOCK_CLIENT_BUILD_ENV_FILE,
       },
     ],
   },

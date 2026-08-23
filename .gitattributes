@@ -1,0 +1,2 @@
+*.sh text eol=lf
+deploy/datadock/cicd-deploy text eol=lf
