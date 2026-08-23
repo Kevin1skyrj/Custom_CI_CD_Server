@@ -65,8 +65,8 @@ switch_current_release() {
 }
 
 reload_services() {
-  "$PM2_BIN" startOrReload "$ECOSYSTEM_FILE" --update-env
-  "$PM2_BIN" save
+  sudo -u ubuntu "$PM2_BIN" startOrReload "$ECOSYSTEM_FILE" --update-env
+  sudo -u ubuntu "$PM2_BIN" save
 }
 
 prepare_release() {

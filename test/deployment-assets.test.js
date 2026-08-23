@@ -20,6 +20,11 @@ test("DataDock deployment script uses strict and validated releases", () => {
   assert.match(deploymentScript, /validate_commit_sha/);
   assert.match(deploymentScript, /mv -Tf/);
   assert.match(deploymentScript, /startOrReload/);
+  assert.match(
+    deploymentScript,
+    /sudo -u ubuntu "\$PM2_BIN" startOrReload/
+  );
+  assert.match(deploymentScript, /sudo -u ubuntu "\$PM2_BIN" save/);
   assert.match(deploymentScript, /prepare\)/);
   assert.match(deploymentScript, /activate\)/);
   assert.match(deploymentScript, /rollback\)/);
