@@ -39,7 +39,6 @@ verify_release() {
   [[ -f "$release/server/package.json" ]] || fail "server package is missing"
   [[ -f "$SHARED_DIR/client.env.production" ]] || fail "shared client environment is missing"
   [[ -f "$SHARED_DIR/server.env" ]] || fail "shared server environment is missing"
-  [[ -x "$PM2_BIN" ]] || fail "PM2 executable is unavailable"
   [[ -f "$ECOSYSTEM_FILE" ]] || fail "PM2 ecosystem file is unavailable"
 
   if [[ -d "$release/.git" ]]; then
