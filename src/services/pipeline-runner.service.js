@@ -21,6 +21,7 @@ import { checkDeploymentHealth } from "./health-check.service.js";
 import { sendPipelineNotification } from "./notification.service.js";
 import { runPipelineStages } from "./pipeline-stages.service.js";
 import { enqueueProjectTask } from "./project-queue.service.js";
+import { removePipelineWorkspace } from "./workspace-cleanup.service.js";
 
 export function schedulePipelineJob(job, components, options = {}) {
   if (!PIPELINE_EXECUTION_ENABLED) {
@@ -174,6 +175,16 @@ async function runPipeline(job, components, options) {
     await appendPipelineLog(
       job.id,
       "Email notification failed; pipeline result was not changed"
+    );
+  }
+
+  try {
+    await removePipelineWorkspace(job.id);
+    await appendPipelineLog(job.id, "Pipeline workspace removed");
+  } catch {
+    await appendPipelineLog(
+      job.id,
+      "Pipeline workspace cleanup failed; pipeline result was not changed"
     );
   }
 

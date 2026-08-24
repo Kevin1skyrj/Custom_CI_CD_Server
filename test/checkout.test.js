@@ -143,8 +143,12 @@ test("checks out and verifies the exact requested commit", async () => {
   });
 
   const workspace = path.join(workspaceDirectory, job.id);
+  const deploymentDirectory = path.join(
+    process.env.LOCAL_DEPLOY_DIR,
+    job.id
+  );
   const checkedOutContent = await fs.readFile(
-    path.join(workspace, "version.txt"),
+    path.join(deploymentDirectory, "version.txt"),
     "utf8"
   );
   const savedJob = await findPipelineJobById(job.id);
@@ -164,7 +168,10 @@ test("checks out and verifies the exact requested commit", async () => {
   assert.equal(currentRelease.commitSha, firstCommit);
   assert.equal(savedJob.stageResults.length, 4);
   assert.equal(
-    await fs.readFile(path.join(workspace, "client", "built.txt"), "utf8"),
+    await fs.readFile(
+      path.join(deploymentDirectory, "client", "built.txt"),
+      "utf8"
+    ),
     "built"
   );
   assert.match(savedLog, /Exact commit checkout started/);
@@ -177,6 +184,8 @@ test("checks out and verifies the exact requested commit", async () => {
     savedLog,
     /Email notification failed; pipeline result was not changed/
   );
+  assert.match(savedLog, /Pipeline workspace removed/);
+  await assert.rejects(fs.access(workspace));
 });
 
 test("persists a failed status when checkout cannot start", async () => {
@@ -264,6 +273,7 @@ test("persists the failed stage and skips later stages", async () => {
   assert.equal(savedJob.stageResults[0].status, "failed");
   assert.equal(savedJob.stageResults[0].exitCode, 2);
   await assert.rejects(fs.access(markerFile));
+  await assert.rejects(fs.access(workspace));
 });
 
 test("persists deployment adapter failures", async () => {
